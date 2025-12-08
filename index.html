@@ -3,105 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>書籍詳細資訊</title>
-    <link rel="stylesheet" href="../style.css">
+    <title>圖書館查詢系統</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>查詢結果</h1>
+            <h1>圖書館查詢系統</h1>
         </header>
-        <div class="content" id="app">
-            <div class="loading">
-                <p>資料讀取中...</p>
+        <div class="content">
+            <div class="scan-instruction">
+                <span class="nfc-icon">📡</span>
+                <p class="hint">請掃描書籍上的 NFC 標籤<br>以查閱書籍資訊與借閱狀態</p>
             </div>
         </div>
     </div>
-
-    <script>
-        // 設定：請填入你的 Google Apps Script Web App URL
-        const API_URL = 'https://script.google.com/macros/s/AKfycbyzKAevUHQV-hNi-UcgY1fcZ-VbsD4qJHLSWBUlQvKNbZAfvPOuIzSWF-j-nxMuFpDd/exec'; 
-
-        document.addEventListener('DOMContentLoaded', () => {
-            const params = new URLSearchParams(window.location.search);
-            const code = params.get('code');
-
-            if (!code) {
-                renderError('無效的連結：缺少書籍代碼');
-                return;
-            }
-
-            fetchBookInfo(code);
-        });
-
-        async function fetchBookInfo(code) {
-            try {
-                // 使用 fetch 呼叫 GAS API
-                const response = await fetch(`${API_URL}?code=${code}`);
-                const json = await response.json();
-
-                if (json.success) {
-                    renderBook(json.data);
-                } else {
-                    renderError(json.message);
-                }
-            } catch (error) {
-                console.error(error);
-                renderError('無法連線到資料庫，請稍後再試。');
-            }
-        }
-
-        function renderBook(data) {
-            const app = document.getElementById('app');
-            const isBorrowed = data.status === '外借';
-            
-            // 狀態徽章 HTML
-            const statusHtml = isBorrowed 
-                ? `<span class="status-badge status-out">❌ 外借</span>` 
-                : `<span class="status-badge status-in">✅ 在庫 (可借閱)</span>`;
-
-            // 基礎書籍資訊 HTML
-            let html = `
-                <div class="info-group">
-                    <div class="info-title">書籍資訊</div>
-                    <div class="data-row"><span class="label">ISBN</span><span class="value">${data.isbn}</span></div>
-                    <div class="data-row"><span class="label">館藏編號</span><span class="value">${data.book_id}</span></div>
-                    <div class="data-row"><span class="label">位置</span><span class="value">${data.location}</span></div>
-                    <div class="data-row"><span class="label">狀態</span><span class="value">${statusHtml}</span></div>
-                </div>
-            `;
-
-            // 如果是外借狀態，加入借閱資訊
-            if (isBorrowed && data.borrowed_info) {
-                const info = data.borrowed_info;
-                // 計算是否逾期 (選擇性功能)
-                const isOverdue = new Date() > new Date(info.due_date);
-                const dateStyle = isOverdue ? 'color: var(--error-color); font-weight:bold;' : '';
-
-                html += `
-                    <div class="info-group">
-                        <div class="info-title">借閱資訊</div>
-                        <div class="data-row"><span class="label">借閱人</span><span class="value">${info.borrower}</span></div>
-                        <div class="data-row"><span class="label">借出日期</span><span class="value">${info.borrow_date}</span></div>
-                        <div class="data-row"><span class="label">應還日期</span><span class="value" style="${dateStyle}">${info.due_date}</span></div>
-                    </div>
-                `;
-            }
-
-            app.innerHTML = html;
-        }
-
-        function renderError(msg) {
-            const app = document.getElementById('app');
-            app.innerHTML = `
-                <div class="error-msg">
-                    <h3>⚠️ 查詢失敗</h3>
-                    <p>${msg}</p>
-                    <br>
-                    <a href="/" style="color: #666;">回首頁</a>
-                </div>
-            `;
-        }
-    </script>
 </body>
 </html>
