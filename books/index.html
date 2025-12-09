@@ -25,8 +25,7 @@
     </div>
 
     <script>
-        // ⚠️ 請修改這裡：填入你在 Part 2 建立的 Cloudflare Worker 網址
-        // 記得後面要加上 /api
+        // ✅ 你的 Cloudflare Worker API 網址 (已設定好)
         const API_BASE = 'https://lib-api.tu28291797.workers.dev/api'; 
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -43,7 +42,7 @@
 
         async function fetchBookInfo(code) {
             try {
-                // 改為呼叫 Worker 的 API
+                // 呼叫 Worker 的 API
                 const response = await fetch(`${API_BASE}/books?code=${code}`);
                 const json = await response.json();
 
@@ -70,7 +69,11 @@
             // 處理標題 (如果 Google Sheet 沒填 title 就顯示未命名)
             const title = data.title || '未命名書籍';
             const author = data.author || '未知作者';
+            
+            // 處理價格顯示 (如果沒有價格顯示 - )
+            const displayFixedPrice = data.fixed_price ? `${data.fixed_price} ${data.unit}` : '-';
 
+            // 構建完整 HTML (包含出版社、日期、分類等詳細資料)
             let html = `
                 <div class="book-header">
                     <div class="book-title">${title}</div>
@@ -79,9 +82,19 @@
 
                 <div class="info-group">
                     <div class="info-title">基本資料</div>
+                    <div class="data-row"><span class="label">出版社</span><span class="value">${data.publisher}</span></div>
+                    <div class="data-row"><span class="label">出版日</span><span class="value">${data.pub_date}</span></div>
+                    <div class="data-row"><span class="label">分類</span><span class="value">${data.category}</span></div>
+                    <div class="data-row"><span class="label">刷次</span><span class="value">${data.edition}</span></div>
                     <div class="data-row"><span class="label">ISBN</span><span class="value">${data.isbn}</span></div>
-                    <div class="data-row"><span class="label">館藏編號</span><span class="value">${data.book_id}</span></div>
+                </div>
+
+                <div class="info-group">
+                    <div class="info-title">館藏資訊</div>
+                    <div class="data-row"><span class="label">登錄號</span><span class="value">${data.book_id}</span></div>
                     <div class="data-row"><span class="label">位置</span><span class="value">${data.location}</span></div>
+                    <div class="data-row"><span class="label">庫存</span><span class="value">${data.stock}</span></div>
+                    <div class="data-row"><span class="label">定價</span><span class="value">${displayFixedPrice}</span></div>
                     <div class="data-row"><span class="label">狀態</span><span class="value">${statusHtml}</span></div>
                 </div>
             `;
