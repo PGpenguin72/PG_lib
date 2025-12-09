@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>借還書管理系統</title>
+    <!-- Google Identity Services -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <link rel="stylesheet" href="../style.css">
+    <style>
+        /* 管理介面專用樣式 */
+        .admin-panel { display: none; } /* 預設隱藏，登入後顯示 */
+        .login-panel { text-align: center; margin-top: 50px; }
+        .input-group { margin: 20px 0; display: flex; gap: 10px; }
+        .input-field { flex: 1; padding: 12px; font-size: 1.1rem; border: 2px solid #ddd; border-radius: 8px; }
+        .btn { padding: 10px 20px; border-radius: 8px; cursor: pointer; border: none; font-weight: bold; }
+        .btn-primary { background: var(--primary-color); color: white; }
+        .btn-danger { background: var(--error-color); color: white; }
+        
+        .card { background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #eee; margin-bottom: 15px; }
+        .user-info { border-left: 5px solid var(--accent-color); }
+        .overdue-alert { background: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; margin-top: 10px; }
+        
+        .cart-list { list-style: none; padding: 0; }
+        .cart-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; align-items: center; }
+        .cart-remove { color: red; cursor: pointer; padding: 5px; }
+
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 25px; border-radius: 10px; width: 90%; max-width: 400px; text-align: center; }
+        .modal-buttons { margin-top: 20px; display: flex; gap: 10px; justify-content: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📚 借還書管理系統</h1>
+            <div id="user-status" style="font-size: 0.8rem; margin-top: 5px;"></div>
+        </header>
+
+        <!-- 登入區塊 -->
+        <div id="login-section" class="login-panel">
+            <p>請登入管理員帳號</p>
+            <div id="g_id_onload"
+                 data-client_id="YOUR_GOOGLE_CLIENT_ID" 
+                 data-callback="handleCredentialResponse"
+                 data-auto_select="true">
+            </div>
+            <div class="g_id_signin" data-type="standard"></div>
+        </div>
+
+        <!-- 主操作介面 -->
+        <div id="admin-section" class="admin-panel content">
+            
+            <!-- 掃描輸入框 -->
+            <div class="input-group">
+                <input type="text" id="barcode-input" class="input-field" placeholder="請掃描或輸入條碼..." autofocus>
+                <button class="btn btn-primary" onclick="manualSubmit()">🔍</button>
+            </div>
+
+            <!-- 訊息顯示區 -->
+            <div id="message-area"></div>
+
+            <!-- 使用者資訊卡片 -->
+            <div id="user-card" class="card user-info" style="display: none;">
+                <h3>👤 使用者資訊</h3>
+                <div id="user-details"></div>
+            </div>
+
+            <!-- 待借閱清單 -->
+            <div id="cart-card" class="card" style="display: none;">
+                <h3>📚 待借閱清單 (<span id="cart-count">0</span>)</h3>
+                <ul id="cart-list" class="cart-list"></ul>
+                <button id="btn-confirm-borrow" class="btn btn-primary" style="width: 100%; margin-top: 15px;">✅ 確認借閱</button>
+            </div>
+
+            <button onclick="resetSystem()" class="btn" style="width: 100%; margin-top: 20px; background: #eee;">🔄 重置 / 下一位</button>
+        </div>
+    </div>
+
+    <!-- 還書確認視窗 -->
+    <div id="return-modal" class="modal">
+        <div class="modal-content">
+            <h3>歸還書籍確認</h3>
+            <p id="return-book-info" style="margin: 15px 0; text-align: left; line-height: 1.6;"></p>
+            <div class="modal-buttons">
+                <button class="btn btn-primary" onclick="confirmReturn()">✅ 確認歸還</button>
+                <button class="btn btn-danger" onclick="closeModal()">❌ 取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 設定
+        const API_BASE = 'https://lib-api.你的專案.workers.dev/api'; // 替換為你的 Worker 網址
+        let authToken = '';
+        let currentUser = null;
+        let cart = [];
+        let pendingReturnCode = null;
+
+        // 1. Google 登入回調
+        function handleCredentialResponse(response) {
+            authToken = response.credential;
+            verifyAdmin(authToken);
+        }
+
+        async function verifyAdmin(token) {
+            try {
+                const res = await fetch(`${API_BASE}/auth/verify`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                const data = await res.json();
+                
+                if (data.isAdmin) {
+                    document.getElementById('login-section').style.display = 'none';
+                    document.getElementById('admin-section').style.display = 'block';
+                    document.getElementById('user-status').innerText = `管理員：${data.email}`;
+                    document.getElementById('barcode-input').focus();
+                } else {
+                    alert('權限不足');
+                }
+            } catch (e) {
+                alert('登入驗證失敗');
+                console.error(e);
+            }
+        }
+
+        // 2. 條碼輸入監聽
+        const input = document.getElementById('barcode-input');
+        input.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') processBarcode(input.value);
+        });
+        
+        function manualSubmit() { processBarcode(input.value); }
+
+        async function processBarcode(code) {
+            code = code.trim();
+            if (!code) return;
+            input.value = ''; // 清空
+
+            // 判斷邏輯
+            if (code.length === 8) {
+                await fetchUser(code);
+            } else if (code.length >= 10) {
+                await fetchBook(code);
+            } else {
+                showMessage('❌ 無效的條碼格式', 'error');
+            }
+        }
+
+        // 3. 取得使用者
+        async function fetchUser(cardCode) {
+            showMessage('⏳ 查詢使用者中...', 'info');
+            const res = await apiCall('/user/info', { card_code: cardCode });
+            
+            if (res.success) {
+                currentUser = res.data;
+                renderUser();
+                showMessage(`✅ 讀取成功：${currentUser.name}`, 'success');
+            } else {
+                showMessage(`❌ ${res.message}`, 'error');
+            }
+        }
+
+        // 4. 取得書籍
+        async function fetchBook(code) {
+            showMessage('⏳ 查詢書籍中...', 'info');
+            const res = await apiCall('/book/check', { code: code });
+            
+            if (!res.success) {
+                showMessage(`❌ ${res.message}`, 'error');
+                return;
+            }
+
+            const book = res.data;
+
+            // 邏輯 A: 書籍外借中 -> 跳出還書視窗
+            if (book.status === '外借') {
+                pendingReturnCode = book.code;
+                showReturnModal(book);
+                return;
+            }
+
+            // 邏輯 B: 書籍在庫
+            if (!currentUser) {
+                showMessage('⚠️ 請先掃描使用者條碼再借書', 'error');
+                return;
+            }
+
+            // 檢查逾期
+            if (currentUser.overdue) {
+                showMessage('⛔ 該使用者有逾期書籍，無法借閱', 'error');
+                return;
+            }
+
+            // 檢查是否已在購物車
+            if (cart.find(c => c.code === book.code)) {
+                showMessage('⚠️ 此書已在清單中', 'error');
+                return;
+            }
+
+            // 檢查額度
+            const currentTotal = currentUser.already_borrowed + cart.length;
+            if (currentTotal >= currentUser.max) {
+                showMessage('⛔ 超出借閱上限', 'error');
+                return;
+            }
+
+            // 加入購物車
+            cart.push(book);
+            renderCart();
+            showMessage(`✅ 加入清單：${book.isbn}`, 'success');
+        }
+
+        // 5. 執行借閱
+        document.getElementById('btn-confirm-borrow').addEventListener('click', async () => {
+            if (!currentUser || cart.length === 0) return;
+            
+            if (!confirm(`確認借出 ${cart.length} 本書籍給 ${currentUser.name}？`)) return;
+
+            const res = await apiCall('/borrow/confirm', {
+                user_num: currentUser.user_num,
+                card_code: currentUser.card_code,
+                books: cart.map(b => b.code)
+            });
+
+            if (res.success) {
+                alert(`借閱成功！\n應還日期：${res.data.due_date}`);
+                resetSystem();
+            } else {
+                alert(`借閱失敗：${res.message}`);
+            }
+        });
+
+        // 6. 執行還書
+        async function confirmReturn() {
+            if (!pendingReturnCode) return;
+            
+            const res = await apiCall('/return/confirm', { code: pendingReturnCode });
+            closeModal();
+
+            if (res.success) {
+                let msg = `✅ 還書成功\n借閱人：${res.data.borrower_id}`;
+                if (currentUser && currentUser.user_num === res.data.borrower_id) {
+                    // 如果剛好是當前操作的使用者，刷新他的資訊
+                    fetchUser(currentUser.card_code); 
+                }
+                alert(msg);
+            } else {
+                alert(`還書失敗：${res.message}`);
+            }
+        }
+
+        // --- 畫面渲染輔助 ---
+        function renderUser() {
+            const div = document.getElementById('user-card');
+            const details = document.getElementById('user-details');
+            div.style.display = 'block';
+            
+            let overdueHtml = '';
+            if (currentUser.overdue) {
+                overdueHtml = `
+                    <div class="overdue-alert">
+                        <strong>⚠️ 逾期警告</strong><br>
+                        ${currentUser.overdue_books.map(b => `書籍 ${b.borrow_num} 逾期 ${b.days} 天`).join('<br>')}
+                    </div>`;
+            }
+
+            details.innerHTML = `
+                <p><strong>姓名：</strong>${currentUser.name}</p>
+                <p><strong>已借：</strong>${currentUser.already_borrowed} / ${currentUser.max}</p>
+                ${overdueHtml}
+            `;
+        }
+
+        function renderCart() {
+            const div = document.getElementById('cart-card');
+            const list = document.getElementById('cart-list');
+            const count = document.getElementById('cart-count');
+            
+            if (cart.length > 0) {
+                div.style.display = 'block';
+                list.innerHTML = cart.map((book, idx) => `
+                    <li class="cart-item">
+                        <span>${book.isbn} <br><small>${book.location}</small></span>
+                        <span class="cart-remove" onclick="removeFromCart(${idx})">❌</span>
+                    </li>
+                `).join('');
+                count.innerText = cart.length;
+            } else {
+                div.style.display = 'none';
+            }
+        }
+
+        function removeFromCart(idx) {
+            cart.splice(idx, 1);
+            renderCart();
+        }
+
+        function showReturnModal(book) {
+            const modal = document.getElementById('return-modal');
+            const info = document.getElementById('return-book-info');
+            info.innerHTML = `
+                <strong>書籍：</strong>${book.isbn}<br>
+                <strong>借閱人：</strong>${book.borrowed_info.borrower}<br>
+                <strong>借出日：</strong>${book.borrowed_info.borrow_date}<br>
+                <strong>應還日：</strong>${book.borrowed_info.due_date}
+            `;
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('return-modal').style.display = 'none';
+            pendingReturnCode = null;
+        }
+
+        function showMessage(msg, type) {
+            const area = document.getElementById('message-area');
+            const color = type === 'error' ? 'red' : 'green';
+            area.innerHTML = `<p style="color:${color}; font-weight:bold; padding:10px;">${msg}</p>`;
+        }
+
+        function resetSystem() {
+            currentUser = null;
+            cart = [];
+            document.getElementById('user-card').style.display = 'none';
+            document.getElementById('cart-card').style.display = 'none';
+            document.getElementById('message-area').innerHTML = '';
+            document.getElementById('barcode-input').value = '';
+            document.getElementById('barcode-input').focus();
+        }
+
+        async function apiCall(endpoint, body) {
+            try {
+                const res = await fetch(API_BASE + endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(body)
+                });
+                return await res.json();
+            } catch (e) {
+                return { success: false, message: '網路錯誤' };
+            }
+        }
+    </script>
+</body>
+</html>
