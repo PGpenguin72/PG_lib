@@ -71,7 +71,7 @@
             const author = data.author || '未知作者';
             
             // 處理價格顯示 (如果沒有價格顯示 - )
-            const displayFixedPrice = data.fixed_price ? `${data.fixed_price} ${data.unit}` : '-';
+            const displayFixedPrice = data.fixed_price ? `${data.fixed_price} 元` : '-';
 
             // 構建完整 HTML (包含出版社、日期、分類等詳細資料)
             let html = `
