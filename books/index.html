@@ -6,7 +6,7 @@
     <title>書籍詳細資訊</title>
     <link rel="stylesheet" href="../style.css">
     <style>
-        /* 新增一些樣式讓書名更明顯 */
+        /* 書籍詳情頁專用樣式 */
         .book-header { text-align: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
         .book-title { font-size: 1.4rem; font-weight: bold; color: var(--primary-color); margin-bottom: 8px; }
         .book-author { color: #666; font-size: 1rem; }
@@ -25,8 +25,9 @@
     </div>
 
     <script>
-        // ⚠️ 請填入你正確的 Web App URL (結尾是 /exec)
-        const API_URL = 'https://script.google.com/macros/s/AKfycbzb6uBiwxAdzpOilowU_ZB7CzWBUq3ToKaBHm5IO2nN2_i9Q14h6B-gM8dF2eo_2YAr/exec'; 
+        // ⚠️ 請修改這裡：填入你在 Part 2 建立的 Cloudflare Worker 網址
+        // 記得後面要加上 /api
+        const API_BASE = 'https://lib-api.你的專案名.workers.dev/api'; 
 
         document.addEventListener('DOMContentLoaded', () => {
             const params = new URLSearchParams(window.location.search);
@@ -36,12 +37,14 @@
                 renderError('無效的連結：缺少書籍代碼');
                 return;
             }
+
             fetchBookInfo(code);
         });
 
         async function fetchBookInfo(code) {
             try {
-                const response = await fetch(`${API_URL}?code=${code}`);
+                // 改為呼叫 Worker 的 API
+                const response = await fetch(`${API_BASE}/books?code=${code}`);
                 const json = await response.json();
 
                 if (json.success) {
@@ -59,43 +62,34 @@
             const app = document.getElementById('app');
             const isBorrowed = data.status === '外借';
             
+            // 狀態顯示邏輯
             const statusHtml = isBorrowed 
                 ? `<span class="status-badge status-out">❌ 外借</span>` 
                 : `<span class="status-badge status-in">✅ 在庫 (可借閱)</span>`;
 
-            // 處理價格顯示 (如果沒有價格顯示 - )
-            const displayPrice = data.price ? `${data.price} ${data.unit}` : '-';
-            const displayFixedPrice = data.fixed_price ? `${data.fixed_price} ${data.unit}` : '-';
+            // 處理標題 (如果 Google Sheet 沒填 title 就顯示未命名)
+            const title = data.title || '未命名書籍';
+            const author = data.author || '未知作者';
 
             let html = `
                 <div class="book-header">
-                    <div class="book-title">${data.title}</div>
-                    <div class="book-author">作者：${data.author}</div>
+                    <div class="book-title">${title}</div>
+                    <div class="book-author">作者：${author}</div>
                 </div>
 
                 <div class="info-group">
                     <div class="info-title">基本資料</div>
-                    <div class="data-row"><span class="label">出版社</span><span class="value">${data.publisher}</span></div>
-                    <div class="data-row"><span class="label">出版日</span><span class="value">${data.pub_date}</span></div>
-                    <div class="data-row"><span class="label">分類</span><span class="value">${data.category}</span></div>
-                    <div class="data-row"><span class="label">刷次</span><span class="value">${data.edition}</span></div>
                     <div class="data-row"><span class="label">ISBN</span><span class="value">${data.isbn}</span></div>
-                </div>
-
-                <div class="info-group">
-                    <div class="info-title">館藏資訊</div>
-                    <div class="data-row"><span class="label">登錄號</span><span class="value">${data.book_id}</span></div>
+                    <div class="data-row"><span class="label">館藏編號</span><span class="value">${data.book_id}</span></div>
                     <div class="data-row"><span class="label">位置</span><span class="value">${data.location}</span></div>
-                    <div class="data-row"><span class="label">庫存</span><span class="value">${data.stock}</span></div>
-                    <div class="data-row"><span class="label">定價</span><span class="value">${displayFixedPrice}</span></div>
-                    <div class="data-row"><span class="label">購入價</span><span class="value">${displayPrice}</span></div>
                     <div class="data-row"><span class="label">狀態</span><span class="value">${statusHtml}</span></div>
                 </div>
             `;
 
+            // 如果外借中，顯示借閱資訊 (已經由後端脫敏)
             if (isBorrowed && data.borrowed_info) {
                 const info = data.borrowed_info;
-                // 簡單判斷逾期 (今日 > 應還日)
+                // 計算是否逾期
                 const isOverdue = new Date() > new Date(info.due_date);
                 const dateStyle = isOverdue ? 'color: var(--error-color); font-weight:bold;' : '';
 
